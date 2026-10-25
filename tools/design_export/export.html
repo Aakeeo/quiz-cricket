@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cricket player glb export</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+try {
+// ---- model code copied verbatim from the Claude Design project "3D Stylized Cricket Player" ----
+const mat = (name, color, roughness = 0.8, metalness = 0) =>
+  Object.assign(new THREE.MeshStandardMaterial({ color, roughness, metalness }), { name });
+const M = {
+  kitBlue:  mat('kit_blue',  0x1746b8, 0.75),
+  kitTrim:  mat('kit_yellow',0xf2c21b, 0.7),
+  skin:     mat('skin',      0x9c6a46, 0.65),
+  hair:     mat('hair_dark', 0x1c1612, 0.9),
+  shoe:     mat('shoe_white',0xf1f1ee, 0.5),
+  sole:     mat('sole_dark', 0x2a2a2a, 0.9),
+  willow:   mat('bat_willow',0xd9b77a, 0.6),
+  grip:     mat('bat_grip',  0x111111, 0.85),
+};
+
+const mesh = (name, geo, m, x = 0, y = 0, z = 0) => {
+  const o = new THREE.Mesh(geo, m); o.name = name; o.position.set(x, y, z);
+  o.castShadow = o.receiveShadow = true; return o;
+};
+const cyl = (rt, rb, h, seg = 32) => new THREE.CylinderGeometry(rt, rb, h, seg);
+const sph = (r, w = 32, h = 24) => new THREE.SphereGeometry(r, w, h);
+const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+const grp = (name, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.name = name; g.position.set(x, y, z); return g; };
+
+
+const lathe = (pts, seg = 48) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
+M.eyeWhite = mat('eye_white', 0xf4f1ea, 0.4);
+M.iris     = mat('iris_brown', 0x3b2414, 0.5);
+M.pupil    = mat('pupil', 0x050505, 0.6);
+M.lip      = mat('lip', 0x7a4634, 0.7);
+M.skinDark = mat('skin_shade', 0x8a5b3b, 0.7);
+
+const player = grp('cricket_player');
+
+// ---- legs ----
+for (const side of [-1, 1]) {
+  const s = side < 0 ? 'L' : 'R';
+  const leg = grp(`leg_${s}`, side * 0.1, 0.98, 0);
+  const thigh = mesh(`thigh_${s}`, lathe([[0.09,0],[0.095,-0.08],[0.085,-0.25],[0.07,-0.42],[0.065,-0.47]]), M.kitBlue); leg.add(thigh);
+  const knee = mesh(`knee_${s}`, sph(0.066), M.kitBlue, 0, -0.47, 0); leg.add(knee);
+  const shin = mesh(`shin_${s}`, lathe([[0.064,0],[0.07,-0.1],[0.058,-0.3],[0.05,-0.42],[0.052,-0.45]]), M.kitBlue, 0, -0.47, 0); leg.add(shin);
+  const stripe = mesh(`leg_stripe_${s}`, box(0.01, 0.82, 0.03), M.kitTrim, side * 0.078, -0.44, 0); leg.add(stripe);
+  const shoe = grp(`shoe_${s}`, 0, -0.95, 0.03);
+  const upper = mesh(`shoe_upper_${s}`, box(0.1, 0.065, 0.24), M.shoe, 0, 0.01, 0.02);
+  const toe = mesh(`shoe_toe_${s}`, sph(0.05, 24, 16), M.shoe, 0, 0, 0.14); toe.scale.set(1, 0.75, 1.1);
+  const heel = mesh(`shoe_heel_${s}`, sph(0.05, 24, 16), M.shoe, 0, 0.01, -0.1); heel.scale.set(1, 0.9, 0.8);
+  const sole = mesh(`shoe_sole_${s}`, box(0.105, 0.02, 0.29), M.sole, 0, -0.03, 0.02);
+  const flash = mesh(`shoe_stripe_${s}`, box(0.102, 0.012, 0.1), M.kitTrim, 0, 0.0, 0.01);
+  shoe.add(upper, toe, heel, sole, flash); leg.add(shoe);
+  player.add(leg);
+}
+
+// ---- torso (athletic V shape) ----
+const torso = grp('torso', 0, 0.98, 0);
+const hips = mesh('hips', lathe([[0.15,-0.02],[0.17,0.06],[0.165,0.13]]), M.kitBlue); hips.scale.z = 0.68;
+const waistband = mesh('waistband', cyl(0.168, 0.168, 0.03), M.kitTrim, 0, 0.14, 0); waistband.scale.z = 0.68;
+const shirt = mesh('shirt', lathe([[0.17,0.13],[0.165,0.2],[0.18,0.3],[0.21,0.4],[0.225,0.46],[0.2,0.5],[0.14,0.53],[0.08,0.57],[0.055,0.58]]), M.kitBlue); shirt.scale.z = 0.62;
+torso.add(hips, waistband, shirt);
+for (const side of [-1, 1]) {
+  const seam = mesh(`side_stripe_${side < 0 ? 'L' : 'R'}`, box(0.012, 0.26, 0.04), M.kitTrim, side * 0.192, 0.35, 0);
+  seam.rotation.z = side * -0.13; torso.add(seam);
+  const pec = mesh(`chest_${side < 0 ? 'L' : 'R'}`, sph(0.085, 24, 16), M.kitBlue, side * 0.08, 0.43, 0.095); pec.scale.set(1.05, 0.7, 0.3); torso.add(pec);
+}
+const chestBand = mesh('chest_band', box(0.19, 0.045, 0.014), M.kitTrim, 0, 0.36, 0.126); torso.add(chestBand);
+const collar = mesh('collar', new THREE.TorusGeometry(0.068, 0.016, 16, 40), M.kitTrim, 0, 0.585, -0.005); collar.rotation.x = Math.PI / 2; torso.add(collar);
+const collarBack = mesh('collar_back', cyl(0.08, 0.072, 0.035, 32, 1, true, Math.PI * 0.6, Math.PI * 0.8), M.kitTrim, 0, 0.605, -0.005); collarBack.material.side = THREE.DoubleSide; torso.add(collarBack);
+const placket = mesh('placket', box(0.018, 0.09, 0.012), M.kitTrim, 0, 0.52, 0.118); torso.add(placket);
+player.add(torso);
+
+// ---- head ----
+const head = grp('head', 0, 1.555, 0);
+const neck = mesh('neck', cyl(0.052, 0.062, 0.1), M.skin, 0, 0.03, -0.005);
+const face = mesh('face', lathe([[0,0],[0.04,0.006],[0.065,0.03],[0.08,0.07],[0.088,0.11],[0.09,0.15],[0.086,0.19],[0.072,0.225],[0.045,0.248],[0,0.255]], 56), M.skin, 0, 0.075, 0);
+face.scale.set(1, 1, 1.12);
+// jaw / cheekbones
+const jaw = mesh('jaw', sph(0.075, 32, 20), M.skin, 0, 0.11, 0.008); jaw.scale.set(1.12, 0.6, 1.1);
+// brow ridge
+const brow = mesh('brow_ridge', sph(0.07, 32, 16), M.skin, 0, 0.235, 0.05); brow.scale.set(1.25, 0.35, 0.9);
+// nose
+const noseBridge = mesh('nose_bridge', box(0.018, 0.055, 0.03), M.skin, 0, 0.2, 0.097); noseBridge.rotation.x = 0.25;
+const noseTip = mesh('nose_tip', sph(0.017, 20, 14), M.skin, 0, 0.172, 0.112);
+const nostrils = [-1, 1].map(s => { const n = mesh(`nostril_${s<0?'L':'R'}`, sph(0.012, 16, 12), M.skinDark, s * 0.016, 0.165, 0.102); return n; });
+head.add(neck, face, jaw, brow, noseBridge, noseTip, ...nostrils);
+// eyes
+for (const s of [-1, 1]) {
+  const n = s < 0 ? 'L' : 'R';
+  const socket = mesh(`eye_socket_${n}`, sph(0.024, 20, 14), M.skinDark, s * 0.036, 0.21, 0.082); socket.scale.set(1.3, 0.8, 0.5);
+  const white = mesh(`eye_white_${n}`, sph(0.017, 20, 14), M.eyeWhite, s * 0.036, 0.21, 0.09); white.scale.set(1.3, 0.75, 0.6);
+  const iris = mesh(`iris_${n}`, sph(0.0085, 16, 12), M.iris, s * 0.036, 0.21, 0.1); iris.scale.z = 0.4;
+  const pupil = mesh(`pupil_${n}`, sph(0.0045, 12, 8), M.pupil, s * 0.036, 0.21, 0.103);
+  const browH = mesh(`eyebrow_${n}`, box(0.05, 0.009, 0.012), M.hair, s * 0.04, 0.245, 0.096); browH.rotation.z = s * -0.18; browH.rotation.x = -0.2;
+  const lid = mesh(`eyelid_${n}`, box(0.044, 0.006, 0.012), M.skinDark, s * 0.036, 0.223, 0.098);
+  head.add(socket, white, iris, pupil, browH, lid);
+}
+// mouth
+const lipTop = mesh('lip_upper', box(0.05, 0.008, 0.014), M.lip, 0, 0.128, 0.098);
+const lipBot = mesh('lip_lower', box(0.044, 0.011, 0.016), M.lip, 0, 0.117, 0.097);
+const mouthLine = mesh('mouth_line', box(0.054, 0.003, 0.012), M.pupil, 0, 0.1225, 0.1005);
+head.add(lipTop, lipBot, mouthLine);
+// ears
+for (const s of [-1, 1]) {
+  const ear = mesh(`ear_${s<0?'L':'R'}`, sph(0.026, 20, 14), M.skin, s * 0.092, 0.205, 0.0); ear.scale.set(0.45, 1.1, 0.75); head.add(ear);
+}
+// beard (short, trimmed) — hugs jaw, leaves lips & cheeks above
+const beard = mesh('beard', lathe([[0.002,-0.004],[0.047,0.003],[0.072,0.028],[0.085,0.05],[0.088,0.06]], 56), M.hair, 0, 0.07, 0); beard.scale.set(1.01, 1, 1.12);
+const beardCheeks = [-1, 1].map(s => { const b = mesh(`beard_cheek_${s<0?'L':'R'}`, box(0.014, 0.07, 0.08), M.hair, s * 0.079, 0.155, 0.03); b.rotation.z = s * 0.12; b.rotation.y = s * -0.4; return b; });
+head.add(...beardCheeks);
+const moustache = mesh('moustache', box(0.056, 0.011, 0.014), M.hair, 0, 0.141, 0.1); moustache.rotation.x = -0.15;
+const sideburns = [-1, 1].map(s => { const b = mesh(`sideburn_${s<0?'L':'R'}`, box(0.012, 0.1, 0.045), M.hair, s * 0.083, 0.235, -0.03); b.rotation.z = s * 0.1; return b; });
+head.add(beard, moustache, ...sideburns);
+// hair — short, textured top, faded sides
+const hairCap = mesh('hair_cap', lathe([[0.084,0.215],[0.091,0.24],[0.088,0.265],[0.075,0.29],[0.05,0.308],[0,0.315]], 56), M.hair, 0, 0.078, -0.005); hairCap.scale.set(1.02, 1, 1.14);
+const hairTop = mesh('hair_top', sph(0.075, 32, 20, 0, Math.PI * 2, 0, Math.PI * 0.5), M.hair, 0, 0.345, -0.012); hairTop.scale.set(1.12, 0.6, 1.22);
+const hairFront = mesh('hair_front_quiff', sph(0.04, 24, 16), M.hair, 0, 0.36, 0.05); hairFront.scale.set(1.9, 0.6, 1);
+const hairline = mesh('hairline_front', box(0.12, 0.012, 0.03), M.hair, 0, 0.3, 0.085); hairline.rotation.x = 0.5;
+head.add(hairCap, hairTop, hairFront, hairline);
+player.add(head);
+
+// ---- arms ----
+function arm(side) {
+  const s = side < 0 ? 'L' : 'R';
+  const a = grp(`arm_${s}`, side * 0.195, 1.465, 0);
+  a.rotation.z = side * -0.12;
+  const delt = mesh(`shoulder_${s}`, sph(0.068), M.kitBlue, side * 0.01, 0.0, 0); delt.scale.set(1.1, 0.9, 0.9);
+  const sleeve = mesh(`sleeve_${s}`, cyl(0.07, 0.06, 0.16), M.kitBlue, 0, -0.09, 0);
+  const sleeveTrim = mesh(`sleeve_trim_${s}`, cyl(0.064, 0.062, 0.022), M.kitTrim, 0, -0.185, 0);
+  const upper = mesh(`upper_arm_${s}`, lathe([[0.058,0],[0.06,-0.05],[0.05,-0.12]]), M.skin, 0, -0.19, 0);
+  const elbow = mesh(`elbow_${s}`, sph(0.05), M.skin, 0, -0.32, 0);
+  const forearm = grp(`forearm_${s}`, 0, -0.32, 0);
+  const fore = mesh(`forearm_mesh_${s}`, lathe([[0.05,0],[0.054,-0.07],[0.042,-0.2],[0.036,-0.25]]), M.skin);
+  const wrist = mesh(`wristband_${s}`, cyl(0.04, 0.04, 0.03), M.kitTrim, 0, -0.255, 0);
+  const palm = mesh(`hand_${s}`, box(0.07, 0.085, 0.035), M.skin, 0, -0.31, 0.005);
+  const fingers = mesh(`fingers_${s}`, box(0.068, 0.06, 0.03), M.skin, 0, -0.375, 0.012); fingers.rotation.x = 0.35;
+  const thumb = mesh(`thumb_${s}`, cyl(0.011, 0.012, 0.05), M.skin, side * -0.04, -0.3, 0.02); thumb.rotation.z = side * 0.6;
+  forearm.add(fore, wrist, palm, fingers, thumb);
+  a.add(delt, sleeve, sleeveTrim, upper, elbow, forearm);
+  return { a, forearm };
+}
+const L = arm(-1); player.add(L.a);
+const R = arm(1);  player.add(R.a);
+R.forearm.rotation.x = -0.3;
+
+// ---- bat (right hand) ----
+const bat = grp('bat', 0, -0.33, 0.025);
+bat.rotation.x = 0.12;
+const grip = mesh('bat_grip', cyl(0.017, 0.017, 0.3), M.grip, 0, 0, 0);
+const handle = mesh('bat_handle', cyl(0.016, 0.02, 0.07), M.willow, 0, -0.185, 0);
+const shoulderWedge = mesh('bat_shoulder', cyl(0.02, 0.048, 0.06), M.willow, 0, -0.25, 0); shoulderWedge.scale.z = 0.45;
+const blade = mesh('bat_blade', box(0.108, 0.55, 0.034), M.willow, 0, -0.555, 0);
+const spine = mesh('bat_spine', box(0.05, 0.5, 0.022), M.willow, 0, -0.53, -0.024);
+const toeB = mesh('bat_toe', cyl(0.054, 0.054, 0.034, 32, 1, false, 0, Math.PI), M.willow, 0, -0.83, 0);
+toeB.rotation.x = Math.PI / 2; toeB.rotation.z = Math.PI; toeB.scale.y = 0.6;
+bat.add(grip, handle, shoulderWedge, blade, spine, toeB);
+R.forearm.add(bat);
+// ---- end of copied model code ----
+
+const buf = await new GLTFExporter().parseAsync(player, { binary: true });
+const bytes = new Uint8Array(buf);
+let s = '';
+for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+window.__glb = btoa(s);
+} catch (e) { window.__err = String(e && e.stack || e); }
+</script>
+</body>
+</html>

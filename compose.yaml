@@ -1,0 +1,12 @@
+services:
+  godot:                       # headless editor + export templates; use via `docker compose run --rm godot ...`
+    image: barichello/godot-ci:4.7.2
+    working_dir: /game
+    volumes: [ "./godot:/game" ]
+    entrypoint: ["godot", "--headless", "--path", "."]
+  web:                         # serves the exported web build on http://localhost:8766/
+    image: nginx:alpine
+    ports: [ "8766:80" ]
+    volumes:
+      - "./godot/build/web:/usr/share/nginx/html:ro"
+      - "./nginx.conf:/etc/nginx/conf.d/default.conf:ro"

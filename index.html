@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz Cricket</title>
+<style>
+  :root { --accent:#ffb703; --bad:#e63946; --ok:#2a9d2a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; font-family:system-ui,sans-serif; background:#7ec0ee; color:#fff; }
+  canvas { display:block; }
+  .ui { position:fixed; left:0; right:0; pointer-events:none; }
+  #hud { top:0; display:flex; justify-content:center; gap:10px; padding:12px; font-weight:800; font-size:18px; }
+  #hud span { background:#0009; padding:6px 14px; border-radius:20px; backdrop-filter:blur(4px); }
+  #timer { top:52px; height:8px; background:#0004; max-width:640px; margin:0 auto; border-radius:4px; overflow:hidden; }
+  #timer > div { height:100%; width:0; background:var(--accent); }
+  #card { bottom:0; pointer-events:auto; max-width:640px; margin:0 auto 16px; padding:0 12px; }
+  #q { background:#fff; color:#111; border-radius:12px; padding:16px 18px; font-size:21px; font-weight:700; }
+  #opts { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  #opts button { font:inherit; font-size:17px; font-weight:600; padding:14px 8px; border:0; border-radius:10px; background:#f1dfb5; color:#111; cursor:pointer; }
+  #opts button:active { transform:scale(.97); }
+  #opts button.ok { background:var(--ok); color:#fff; }
+  #opts button.bad { background:var(--bad); color:#fff; }
+  #opts button small { display:block; opacity:.55; font-size:11px; }
+  #result { bottom:20%; text-align:center; font-size:84px; font-weight:900; text-shadow:0 4px 16px #000a; }
+  #result.pop { animation:pop .45s ease-out; }
+  @keyframes pop { 0%{transform:scale(.2);opacity:0} 60%{transform:scale(1.25)} 100%{transform:scale(1)} }
+  #comm { bottom:13%; text-align:center; font-size:20px; font-style:italic; text-shadow:0 2px 8px #000; padding:0 16px; }
+  #overlay { inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#0008; pointer-events:auto; text-align:center; padding:16px; }
+  #overlay h1 { font-size:64px; margin:0 0 8px; text-shadow:0 4px 16px #000; }
+  #overlay p { font-size:20px; max-width:480px; }
+  #overlay button { font:inherit; font-size:22px; font-weight:800; padding:14px 36px; border:0; border-radius:12px; background:var(--accent); color:#111; cursor:pointer; }
+  #overlay button:disabled { opacity:.5; cursor:wait; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="hud" class="ui"><span id="score">0/0</span><span id="overs">0.0 ov</span><span id="left">12 balls</span></div>
+<div id="timer" class="ui"><div></div></div>
+<div id="result" class="ui"></div>
+<div id="comm" class="ui"></div>
+<div id="card" class="ui hidden"><div id="q"></div><div id="opts"></div></div>
+<div id="overlay" class="ui">
+  <h1 id="ovTitle">Quiz Cricket</h1>
+  <p id="ovText">Answer before the bowler reaches the crease. Faster answers hit bigger shots. A wrong answer is a wicket.<br><br>Keys 1–4 to answer.</p>
+  <button id="ovBtn" disabled>Loading players…</button>
+</div>
+
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+
+// ---------- tunables ----------
+const BALLS = 12, WICKETS = 3, SECS = 15;
+const PACE = 1.8;   // multiplies every animation duration. 1 = brisk, 2 = leisurely.
+
+// ---------- content (ponytail: hardcoded; swap for a fetched JSON bank) ----------
+const BANK = [
+  ["7 × 8 = ?", ["56","54","64","48"], 0],
+  ["Square root of 144?", ["14","12","11","13"], 1],
+  ["Largest planet in the solar system?", ["Saturn","Earth","Jupiter","Neptune"], 2],
+  ["H₂O is the formula for?", ["Hydrogen","Salt","Oxygen","Water"], 3],
+  ["15% of 200?", ["30","25","35","20"], 0],
+  ["Capital of Australia?", ["Sydney","Canberra","Melbourne","Perth"], 1],
+  ["Which gas do plants absorb?", ["Oxygen","Nitrogen","Carbon dioxide","Helium"], 2],
+  ["Smallest prime number?", ["0","1","3","2"], 3],
+  ["Boiling point of water (°C)?", ["100","90","110","212"], 0],
+  ["Who wrote Hamlet?", ["Dickens","Shakespeare","Tolstoy","Austen"], 1],
+  ["Angles in a triangle sum to?", ["90°","360°","180°","270°"], 2],
+  ["Speed = distance ÷ ?", ["mass","force","energy","time"], 3],
+  ["12² = ?", ["144","124","148","164"], 0],
+  ["Longest river in the world?", ["Amazon","Nile","Ganga","Yangtze"], 1],
+  ["Powerhouse of the cell?", ["Nucleus","Ribosome","Mitochondria","Vacuole"], 2],
+  ["Hardest natural substance?", ["Iron","Quartz","Gold","Diamond"], 3],
+  ["Next in 2, 4, 8, 16, ?", ["32","24","20","64"], 0],
+  ["Chemical symbol for Gold?", ["Gd","Au","Ag","Go"], 1],
+  ["How many continents?", ["5","6","7","8"], 2],
+  ["Opposite of 'ancient'?", ["Old","Historic","Antique","Modern"], 3],
+  ["3/4 as a decimal?", ["0.75","0.34","0.5","0.25"], 0],
+  ["Light travels fastest in?", ["Water","Vacuum","Glass","Air"], 1],
+  ["First Prime Minister of India?", ["Gandhi","Patel","Nehru","Bose"], 2],
+  ["How many sides in a hexagon?", ["4","5","8","6"], 3],
+];
+
+// ---------- rules (ponytail: speed ladder only; the rule book for caught/bowled/lbw comes later) ----------
+function runsFor(correct, elapsedSecs) {
+  if (correct === null) return 0;        // timed out → dot ball
+  if (!correct) return -1;               // wrong → wicket
+  const f = elapsedSecs / SECS;          // fraction of the clock used
+  if (f <= .3) return 6;
+  if (f <= .6) return 4;
+  if (f <= .8) return 2;
+  return 1;
+}
+console.assert(runsFor(true,SECS*.1)===6 && runsFor(true,SECS*.5)===4 && runsFor(true,SECS*.7)===2 && runsFor(true,SECS*.95)===1 && runsFor(false,1)===-1 && runsFor(null,SECS)===0, "runs ladder");
+
+// shot name + direction (degrees; 0 = straight back past the bowler, + = leg side)
+const SHOTS = {
+  6: [["Lofted straight back over the bowler's head!", 0], ["Slog-swept deep into the stands!", 70], ["Pulled high over midwicket!", 100], ["Inside-out over extra cover, huge!", -40]],
+  4: [["Cover drive, pierces the gap", -55], ["Square cut, races to the rope", -100], ["Flicked through midwicket", 60], ["Straight drive, nobody moving", 5]],
+  2: [["Pushed into the covers, they come back for two", -45], ["Worked to deep square leg, two", 90]],
+  1: [["Nudged to mid-on, quick single", 25], ["Dabbed down to third man, one", -140]],
+};
+const DOT = ["Beaten by the clock. Dot ball.", "Left alone. No run.", "Too slow, straight into the keeper's gloves."];
+const OUT = ["BOWLED! Through the gate!", "Timber! The stumps are shattered!", "Clean bowled, that's the wrong answer!"];
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+// ---------- three.js scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x7ec0ee);
+scene.fog = new THREE.Fog(0x7ec0ee, 120, 260);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);
+const look = new THREE.Vector3();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a7d2a, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(40, 60, 30); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, far: 200 });
+scene.add(sun);
+
+const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: .9, ...extra });
+const add = (geo, m, pos = [0,0,0], shadow = true) => { const o = new THREE.Mesh(geo, m); o.position.set(...pos); o.castShadow = o.receiveShadow = shadow; scene.add(o); return o; };
+
+// outfield with mowing stripes (procedural texture, no image download)
+const grass = (() => {
+  const c = Object.assign(document.createElement("canvas"), { width: 1024, height: 1024 }), x = c.getContext("2d");
+  for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? "#3f8f2f" : "#378428"; x.fillRect(i * 64, 0, 64, 1024); }
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 8; return t;
+})();
+add(new THREE.CircleGeometry(62, 64).rotateX(-Math.PI/2), mat(0xffffff, { map: grass })).receiveShadow = true;
+add(new THREE.PlaneGeometry(3.2, 24).rotateX(-Math.PI/2), mat(0xd8c08a), [0, .01, 0]);
+add(new THREE.PlaneGeometry(3.2, .12).rotateX(-Math.PI/2), mat(0xffffff), [0, .02, 11.2]);
+add(new THREE.PlaneGeometry(3.2, .12).rotateX(-Math.PI/2), mat(0xffffff), [0, .02, -11.2]);
+add(new THREE.RingGeometry(60.5, 61.2, 96).rotateX(-Math.PI/2), mat(0xffffff), [0, .02, 0]);
+add(new THREE.CircleGeometry(150, 64).rotateX(-Math.PI/2), mat(0x2d6b22), [0, -.05, 0], false);
+{ // crowd: tiers of coloured blocks
+  const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshStandardMaterial(), 1800);
+  const m = new THREE.Matrix4(), c = new THREE.Color(); let i = 0;
+  for (let tier = 0; tier < 6; tier++) for (let a = 0; a < 300; a++) {
+    const ang = a / 300 * Math.PI * 2 + tier * .01, r = 66 + tier * 1.6;
+    m.makeTranslation(Math.sin(ang) * r, 1 + tier * 1.3, Math.cos(ang) * r);
+    crowd.setMatrixAt(i, m); crowd.setColorAt(i++, c.setHSL(Math.random(), .6, .35 + Math.random() * .3));
+  }
+  scene.add(crowd);
+  add(new THREE.CylinderGeometry(75, 66, 9, 64, 1, true), mat(0x5a5a66, { side: THREE.DoubleSide }), [0, 4.5, 0], false);
+}
+for (const a of [45, 135, 225, 315]) {
+  const r = 80, x = Math.sin(a * Math.PI/180) * r, z = Math.cos(a * Math.PI/180) * r;
+  add(new THREE.CylinderGeometry(.5, .8, 40, 8), mat(0xcccccc), [x, 20, z]);
+  add(new THREE.BoxGeometry(6, 3, 1), mat(0xffffee, { emissive: 0xffffcc, emissiveIntensity: .8 }), [x, 41, z]).lookAt(0, 0, 0);
+}
+
+// stumps (two sets), bails on the striker's end only
+function stumps(z) {
+  const g = new THREE.Group(); g.position.set(0, 0, z);
+  for (const x of [-.12, 0, .12]) g.add(add(new THREE.CylinderGeometry(.03, .03, .75), mat(0xf4e4c1), [x, .375, 0]));
+  scene.add(g); return g;
+}
+const strikerStumps = stumps(10), bails = [];
+stumps(-10);
+for (const x of [-.06, .06]) bails.push(add(new THREE.BoxGeometry(.11, .03, .03), mat(0xf4e4c1), [x, .77, 10]));
+
+// ---------- players: rigged Mixamo mannequin (assets/Xbot.glb, from the three.js examples) ----------
+const gltf = await new GLTFLoader().loadAsync("assets/Xbot.glb");
+const CLIP = Object.fromEntries(gltf.animations.map(c => [c.name, c]));
+const people = [];
+function person(shirt, withBat) {
+  const g = new THREE.Group(), model = SkeletonUtils.clone(gltf.scene);
+  model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); o.material.color.set(o.material.name.includes("Joints") ? 0x1f1f1f : shirt); } });
+  g.add(model);
+  const mixer = new THREE.AnimationMixer(model), acts = {};
+  for (const n of ["idle", "run", "sneak_pose"]) acts[n] = mixer.clipAction(CLIP[n]);
+  g.play = name => { const a = acts[name]; if (g.cur === a) return; a.reset().fadeIn(.25).play(); a.time = Math.random() * a.getClip().duration; g.cur?.fadeOut(.25); g.cur = a; };
+  g.play("idle");
+  const bones = {};
+  g.bone = n => bones[n] ??= (() => { let f; model.traverse(o => { if (!f && o.isBone && o.name.endsWith(n)) f = o; }); return f; })();
+  g.pose = { swing: 0, arm: 0 };
+  g.tick = dt => {                               // clip first, then procedural overrides on top
+    mixer.update(dt);
+    if (g.pose.swing) { g.bone("RightArm").rotation.z -= g.pose.swing * 2.4; g.bone("LeftArm").rotation.z += g.pose.swing * 1.2; g.bone("Spine").rotation.y -= g.pose.swing * 1.1; }
+    if (g.pose.arm) { g.bone("RightArm").rotation.z -= g.pose.arm * Math.PI * 2; g.bone("Spine").rotation.x += Math.sin(g.pose.arm * Math.PI) * .5; }
+    if (g.bat) { g.updateWorldMatrix(true, true); g.bone("RightHand").getWorldPosition(g.bat.position); g.bat.rotation.set(-g.pose.swing * 2.2, g.rotation.y, 0, "YXZ"); }
+  };
+  if (withBat) {   // bat lives in world space: pinned to the hand each frame, hangs down, pivots through the swing
+    g.bat = add(new THREE.BoxGeometry(.11, .95, .045).translate(0, -.5, 0), mat(0xe0c08a));
+  }
+  people.push(g); scene.add(g); return g;
+}
+const STRIKER = new THREE.Vector3(0, 0, 9), NONSTRIKER = new THREE.Vector3(1.2, 0, -9), RUNUP = -34, CREASE = -11.5;
+const BAT = 0x1d4ed8, FIELD_KIT = 0xe8b923, WHITE = 0xf2f2f2;
+const striker = person(BAT, true), nonStriker = person(BAT, true), bowler = person(FIELD_KIT), keeper = person(FIELD_KIT);
+const umpire = person(WHITE), legUmpire = person(WHITE);
+const FIELD = [[-160, 12], [-135, 45], [-95, 30], [-55, 35], [-20, 30], [20, 30], [60, 35], [95, 30], [140, 40]];
+const dirOf = deg => new THREE.Vector3(Math.sin(deg * Math.PI/180), 0, -Math.cos(deg * Math.PI/180));
+const fielders = FIELD.map(([a, r]) => { const f = person(FIELD_KIT); f.home = STRIKER.clone().addScaledVector(dirOf(a), r); return f; });
+const ball = add(new THREE.SphereGeometry(.12, 12, 12), mat(0xc81e1e, { roughness: .4 }));
+
+// 3D scoreboard: canvas texture on a big board behind the bowler's arm
+const bc = Object.assign(document.createElement("canvas"), { width: 1024, height: 448 }), bctx = bc.getContext("2d");
+const boardTex = new THREE.CanvasTexture(bc);
+add(new THREE.BoxGeometry(34, 15, 1), mat(0x111111), [0, 12, -79]);
+add(new THREE.PlaneGeometry(32, 14), new THREE.MeshBasicMaterial({ map: boardTex }), [0, 12, -78.4], false);
+add(new THREE.BoxGeometry(1, 10, 1), mat(0x333333), [-12, 2.5, -79]); add(new THREE.BoxGeometry(1, 10, 1), mat(0x333333), [12, 2.5, -79]);
+
+function drawBoard(showRuns = runs) {
+  const x = bctx; x.fillStyle = "#0b1a0b"; x.fillRect(0, 0, 1024, 448);
+  x.fillStyle = "#ffb703"; x.font = "bold 40px monospace"; x.textAlign = "left"; x.fillText("QUIZ XI", 40, 60);
+  x.textAlign = "right"; x.fillText(`OVERS ${Math.floor(balls/6)}.${balls%6}`, 984, 60);
+  x.fillStyle = "#fff"; x.font = "bold 170px monospace"; x.textAlign = "center"; x.fillText(`${showRuns}/${wkts}`, 512, 240);
+  x.font = "bold 36px monospace"; x.fillStyle = "#9ad"; x.fillText(`THIS OVER  ${thisOver.join("  ") || "-"}`, 512, 320);
+  x.fillStyle = "#ffb703"; x.fillText(lastBall, 512, 380);
+  x.fillStyle = "#777"; x.font = "28px monospace"; x.fillText(`BEST ${best}   BALLS LEFT ${BALLS - balls}`, 512, 430);
+  boardTex.needsUpdate = true;
+}
+
+// ---------- tiny tween engine (all durations × PACE) ----------
+const tweens = [];
+const easeIO = p => p < .5 ? 2*p*p : -1 + (4 - 2*p) * p;
+const tween = (ms, fn, ease = easeIO) => new Promise(res => tweens.push({ t0: performance.now(), ms: ms * PACE, fn, ease, res }));
+const wait = ms => new Promise(r => setTimeout(r, ms * PACE));
+const run = async (who, to, ms) => { const from = who.position.clone(); who.lookAt(to.x, 0, to.z); who.play("run");
+  await tween(ms, k => who.position.lerpVectors(from, to, k), p => p); who.play("idle"); };
+const fly = (from, to, peak, ms) => tween(ms, k => { ball.position.lerpVectors(from, to, k); ball.position.y += peak * 4 * k * (1 - k); }, p => p);
+const cam = (pos, target, ms) => { const p0 = camera.position.clone(), l0 = look.clone();
+  return tween(ms, k => { camera.position.lerpVectors(p0, pos, k); look.lerpVectors(l0, target, k); camera.lookAt(look); }); };
+const BATCAM = [new THREE.Vector3(3, 6.5, 24), new THREE.Vector3(0, 1, -8)];
+const BOARDCAM = [new THREE.Vector3(0, 12, -46), new THREE.Vector3(0, 12, -78)];
+
+// ---------- game state ----------
+let runs = 0, wkts = 0, balls = 0, deck = [], thisOver = [], lastBall = "", phase = "idle", tStart = 0, resolveAnswer, best = +(localStorage.getItem("qc_best") || 0);
+const $ = id => document.getElementById(id);
+
+function hud() {
+  $("score").textContent = `${runs}/${wkts}`;
+  $("overs").textContent = `${Math.floor(balls/6)}.${balls%6} ov`;
+  $("left").textContent = `${BALLS - balls} balls left`;
+}
+
+function resetPositions() {
+  striker.position.copy(STRIKER); striker.rotation.set(0, Math.PI, 0); striker.pose.swing = 0;
+  nonStriker.position.copy(NONSTRIKER); nonStriker.rotation.set(0, 0, 0);
+  bowler.position.set(.8, 0, RUNUP); bowler.rotation.set(0, 0, 0); bowler.pose.arm = 0;
+  keeper.position.set(0, 0, 13.5); keeper.rotation.set(0, Math.PI, 0); keeper.play("sneak_pose");
+  umpire.position.set(0, 0, -14.5); umpire.rotation.set(0, Math.PI, 0);
+  legUmpire.position.set(20, 0, 9); legUmpire.rotation.set(0, -Math.PI / 2, 0);
+  fielders.forEach(f => { f.position.copy(f.home); f.lookAt(0, 0, 0); f.play("idle"); });
+  ball.position.set(.8, 1.6, RUNUP);
+  strikerStumps.rotation.set(0, 0, 0); bails.forEach((b, i) => b.position.set(i ? .06 : -.06, .77, 10));
+}
+
+async function playBall() {
+  if (balls >= BALLS || wkts >= WICKETS) return endGame();
+  phase = "anim"; resetPositions(); $("result").textContent = ""; $("comm").textContent = "";
+  await cam(...BATCAM, 700);
+  const [q, opts, ans] = deck[balls];
+  $("q").textContent = q;
+  $("opts").innerHTML = opts.map((o, i) => `<button data-i="${i}"><small>${i+1}</small>${o}</button>`).join("");
+  $("opts").querySelectorAll("button").forEach(b => b.onclick = () => answer(+b.dataset.i));
+  $("card").classList.remove("hidden");
+  bowler.play("run");
+  tStart = performance.now(); phase = "question";
+  const i = await new Promise(r => resolveAnswer = r);
+  const elapsed = (performance.now() - tStart) / 1000, correct = i === null ? null : i === ans;
+  const r = runsFor(correct, elapsed);
+  const btns = $("opts").querySelectorAll("button");
+  btns[ans].classList.add("ok"); if (correct === false) btns[i].classList.add("bad");
+  btns.forEach(b => b.disabled = true);
+  await wait(900); $("card").classList.add("hidden");   // time to read the right answer
+
+  // delivery: finish the run-up, windmill the arm, release
+  await run(bowler, new THREE.Vector3(.8, 0, CREASE), Math.max(150, (CREASE - bowler.position.z) * 60));
+  await tween(500, k => { bowler.pose.arm = k; ball.position.set(.8, 1.6 + Math.sin(k * Math.PI) * .8, CREASE); }, p => p);
+  bowler.pose.arm = 0;
+  const release = new THREE.Vector3(.8, 2.1, CREASE);
+  await Promise.all([
+    fly(release, new THREE.Vector3(0, .5, 9), .4, 700),
+    tween(700, k => { striker.pose.swing = k < .6 ? -.25 * k / .6 : -.25 + (k - .6) / .4 * 1.25; }, p => p),
+  ]);
+
+  // outcome
+  const prevRuns = runs; let text;
+  if (r === -1) {
+    wkts++; text = pick(OUT); thisOver.push("W");
+    await Promise.all([
+      fly(ball.position.clone(), new THREE.Vector3(0, .4, 10.3), 0, 60),
+      cam(new THREE.Vector3(3, 1.5, 15), new THREE.Vector3(0, .5, 10), 300),
+    ]);
+    await Promise.all([
+      tween(500, k => { strikerStumps.rotation.x = -k * 1.2; }),
+      ...bails.map((b, i) => tween(600, k => { b.position.y = .77 + 2 * k * (1 - k) * 1.5; b.position.z = 10 + k * 2; b.position.x += (i ? 1 : -1) * .01; }, p => p)),
+    ]);
+    await wait(600);
+  } else if (r === 0) {
+    text = pick(DOT); thisOver.push("•");
+    await fly(ball.position.clone(), new THREE.Vector3(0, .6, 13.3), .1, 250);
+    await wait(500);
+  } else {
+    const [name, deg] = pick(SHOTS[r]); text = (r === 6 ? "SIX! " : r === 4 ? "FOUR! " : "") + name;
+    runs += r; thisOver.push(String(r));
+    const dir = dirOf(deg), dist = { 6: 78, 4: 62, 2: 38, 1: 22 }[r], peak = { 6: 20, 4: 2, 2: 4, 1: 1.2 }[r], ms = { 6: 1700, 4: 1300, 2: 1100, 1: 800 }[r];
+    const land = STRIKER.clone().addScaledVector(dir, dist); land.y = .12;
+    const chaser = fielders.reduce((a, f) => f.home.distanceTo(land) < a.home.distanceTo(land) ? f : a);
+    const jobs = [
+      fly(ball.position.clone(), land, peak, ms),
+      cam(STRIKER.clone().addScaledVector(dir, -14).add(new THREE.Vector3(0, 9, 0)), land.clone().multiplyScalar(.5), 500),
+    ];
+    if (r < 6) jobs.push(run(chaser, land.clone().addScaledVector(dir, -1.2), ms + 300));
+    for (let n = 0, ends = [STRIKER, NONSTRIKER]; n < Math.min(r, 3); n++) ends = [ends[1], ends[0]], jobs.push(
+      (async () => { await wait(n * 750); striker.pose.swing = 0; await Promise.all([run(striker, ends[0].clone().setX(0), 700), run(nonStriker, ends[1].clone().setX(1.2), 700)]); })());
+    await Promise.all(jobs);
+    if (r < 6) await fly(ball.position.clone(), new THREE.Vector3(0, .8, 13.3), 6, 700);
+  }
+  balls++; lastBall = text.toUpperCase().slice(0, 42); hud();
+  const res = $("result");
+  res.textContent = r < 0 ? "OUT!" : r === 0 ? "•" : r;
+  res.style.color = r < 0 ? "var(--bad)" : r >= 4 ? "var(--accent)" : "#fff";
+  res.classList.remove("pop"); void res.offsetWidth; res.classList.add("pop");
+  $("comm").textContent = text;
+  if (balls % 6 === 0 && balls < BALLS) thisOver = [];
+
+  // cut to the scoreboard, tick the score up, cut back
+  await cam(...BOARDCAM, 650);
+  await tween(650, k => drawBoard(prevRuns + Math.round((runs - prevRuns) * k)));
+  await wait(1200);
+  playBall();
+}
+
+function answer(i) {
+  if (phase !== "question") return;
+  phase = "anim"; $("timer").firstElementChild.style.width = "0%";
+  resolveAnswer(i);
+}
+
+function start() {
+  runs = 0; wkts = 0; balls = 0; thisOver = []; lastBall = "NEW INNINGS";
+  deck = [...BANK].sort(() => Math.random() - .5).slice(0, BALLS);
+  $("overlay").classList.add("hidden"); hud(); drawBoard();
+  playBall();
+}
+
+function endGame() {
+  phase = "idle";
+  best = Math.max(best, runs); localStorage.setItem("qc_best", best);
+  $("ovTitle").textContent = `${runs}/${wkts}`;
+  $("ovText").textContent = (wkts >= WICKETS ? "All out! Revise and come back." : `Innings complete off ${balls} balls.`) + ` Best: ${best}.`;
+  $("ovBtn").textContent = "Bat again";
+  $("overlay").classList.remove("hidden");
+  cam(new THREE.Vector3(30, 25, 50), new THREE.Vector3(0, 0, 0), 1500);
+}
+
+$("ovBtn").onclick = start;
+$("ovBtn").disabled = false; $("ovBtn").textContent = "Start innings";
+if (location.hash === "#demo") { start(); setInterval(() => { if (phase !== "question") return;      // attract mode: auto-plays, 70% correct
+  const ans = deck[balls][2]; $("opts").querySelectorAll("button")[Math.random() < .7 ? ans : (ans + 1) % 4].click(); }, 2500 + Math.random() * 5000); }
+document.addEventListener("keydown", e => {
+  const n = +e.key;
+  if (n >= 1 && n <= 4) $("opts").querySelectorAll("button")[n-1]?.click();
+  if (e.key === "Enter" && !$("overlay").classList.contains("hidden")) start();
+});
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+// ---------- loop ----------
+resetPositions(); drawBoard();
+camera.position.set(30, 25, 50); look.set(0, 0, 0); camera.lookAt(look);
+let last = performance.now();
+renderer.setAnimationLoop(now => {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  for (const tw of [...tweens]) {
+    const p = Math.min(1, (now - tw.t0) / tw.ms); tw.fn(tw.ease(p), p);
+    if (p === 1) { tweens.splice(tweens.indexOf(tw), 1); tw.res(); }
+  }
+  if (phase === "question") {           // bowler runs in while the clock runs
+    const t = Math.min(1, (now - tStart) / 1000 / SECS);
+    $("timer").firstElementChild.style.width = (100 - t * 100) + "%";
+    bowler.position.z = RUNUP + (CREASE - RUNUP) * t * .85;
+    ball.position.set(.8, 1.6, bowler.position.z);
+    if (t >= 1) answer(null);
+  }
+  for (const p of people) p.tick(dt);
+  if (phase === "idle") { const a = now / 20000; camera.position.set(Math.sin(a) * 55, 25, Math.cos(a) * 55); camera.lookAt(0, 0, 0); }
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
